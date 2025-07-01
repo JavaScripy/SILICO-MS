@@ -7,8 +7,6 @@ from matchms import Spectrum
 
 
 from .parse_utils import (
-    load_structure_database,
-    load_ozonolysis_prodcut_database,
     load_reference_database,
     load_ms1_peak_table,
     load_spec_file,
@@ -68,7 +66,10 @@ def get_deep_lipid_name(
         rt_mode: str = "absolute",
         mz_tol: float = 1.0,
         mz_mode: str = "Da",
-        score_type: str = "None"
+        score_type: str = "None",
+        weight_mz: float = 0.25,
+        weight_rt: float = 0.25,
+        weight_spec: float = 0.5
     ) -> Tuple[str, float]:
     """Lipid C=C identification.
 
@@ -91,7 +92,13 @@ def get_deep_lipid_name(
             Type of m/z tolerance.
         score_type:
             Type of MS/MS similarity score.
-
+        weight_mz:
+            Score weight of precursor m/z.
+        weight_rt:
+            Score weight of retention time (RT).
+        weight_spec:
+            Score weight of MS/MS spectrum.
+    
     Returns:
         lipid_name:
             Lipid with C=C information.
@@ -99,9 +106,7 @@ def get_deep_lipid_name(
             Identification score.
     """
     keys = ["id", "rt", "mz", "compound_name", "adduct", "cosine_score", "mol_formula", "smiles"]
-    weight_mz = 0.25
-    weight_rt = 0.25
-    weight_spec = 0.5
+
 
     precursor_mz = annoted_feature["mz"]
     rt = annoted_feature["rt"]
@@ -159,7 +164,15 @@ def algorithm_whole_pipeline(
         ms2_file: str,
         structure_file: str,
         delta_mass_file: str,
-        out_file: str
+        out_file: str,
+        rt_tol: float = 0.5,
+        rt_mode: str = "absolute",
+        mz_tol: float = 1.0,
+        mz_mode: str = "Da",
+        score_type: str = "None",
+        weight_mz: float = 0.25,
+        weight_rt: float = 0.25,
+        weight_spec: float = 0.5
     ):
     """Whole pipeline of SILICO-MS.
 
@@ -174,7 +187,23 @@ def algorithm_whole_pipeline(
             Filename of ozonolysis product database.
         out_file:
             Filename of output.
-
+        rt_tol:
+            Tolerance of retention time (RT).
+        rt_mode:
+            Type of retention time (RT) tolerance.
+        mz_tol:
+            Tolerance of m/z.
+        mz_mode:
+            Type of m/z tolerance.
+        score_type:
+            Type of MS/MS similarity score.
+        weight_mz:
+            Score weight of precursor m/z.
+        weight_rt:
+            Score weight of retention time (RT).
+        weight_spec:
+            Score weight of MS/MS spectrum.
+    
     Returns:
         None
     """
@@ -182,8 +211,6 @@ def algorithm_whole_pipeline(
     print("Running...")
 
     ## 0. Load reference name file & get ozID product delta mass
-    #df_structre = load_structure_database(structure_file)
-    #df_delta_mass = load_ozonolysis_prodcut_database(delta_mass_file)
     df_reference = load_reference_database(structure_file, delta_mass_file)
 
     ## 1. Load MS1 table
@@ -205,7 +232,15 @@ def algorithm_whole_pipeline(
                     annoted_feature=annoted_feature,
                     unannoted_features=unannoted_features,
                     references=references,
-                    spectra=spectra
+                    spectra=spectra,
+                    rt_tol=rt_tol,
+                    rt_mode=rt_mode,
+                    mz_tol=mz_tol,
+                    mz_mode=mz_mode,
+                    score_type=score_type,
+                    weight_mz=weight_mz,
+                    weight_rt=weight_rt,
+                    weight_spec=weight_spec
                 ) for annoted_feature in annoted_features]
     lipid_name_list = [mix[0] for mix in mix_list]
     score_list = [mix[1] for mix in mix_list]
