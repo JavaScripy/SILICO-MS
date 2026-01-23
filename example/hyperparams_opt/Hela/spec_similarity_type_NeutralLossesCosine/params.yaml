@@ -1,0 +1,14 @@
+rt_tol: 0.5
+rt_tol_mode: absolute
+mz_tol: 1.0
+mz_tol_mode: Da
+ms2_spectrum_similarity_type: NeutralLossesCosine
+score_threshold: 0.0
+sn_threshold: 2.0
+top_n: 10
+remove_false_positive: true
+base_out_dir: example/hyperparams_opt/Hela
+rt_weight: 0.0
+precursor_mz_weight: 0.0
+spec_weight: 1.0
+out_dir: example/hyperparams_opt/Hela/spec_similarity_type_NeutralLossesCosine

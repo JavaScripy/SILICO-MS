@@ -1,0 +1,24 @@
+pos:
+  ozid_database_file: database/clean_data/ozonolysis_delta_mass.json
+  ozid:
+    ms1_file: example/data/mouse_liver1/POS_liver1_O3_quant_full.csv
+    ms1_file_type: mzmine
+    ms2_file: example/data/mouse_liver1/POS_liver1_O3.mgf
+    ms2_file_type: mgf
+  cid:
+    ms1_file: example/data/mouse_liver1/POS_liver1_N2_quant_full.csv
+    ms1_file_type: mzmine
+    ms2_file: example/data/mouse_liver1/POS_liver1_N2.mgf
+    ms2_file_type: mgf
+neg:
+  ozid_database_file: database/clean_data/ozonolysis_delta_mass.json
+  ozid:
+    ms1_file: example/data/mouse_liver1/NEG_liver1_O3_quant_full.csv
+    ms1_file_type: mzmine
+    ms2_file: example/data/mouse_liver1/NEG_liver1_O3.mgf
+    ms2_file_type: mgf
+  cid:
+    ms1_file: example/data/mouse_liver1/NEG_liver1_N2_quant_full.csv
+    ms1_file_type: mzmine
+    ms2_file: example/data/mouse_liver1/NEG_liver1_N2.mgf
+    ms2_file_type: mgf
