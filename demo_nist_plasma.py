@@ -1,0 +1,192 @@
+import os
+import yaml
+import pandas as pd
+
+
+from silico_ms.pipeline_runner import LipidAnnotatorRunner
+
+
+def dict_to_yaml(
+    file: str,
+    data: dict
+) -> None:
+    """Write a dictionary to a YAML file."""
+    with open(file, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, allow_unicode=True, sort_keys=False)
+    
+
+def yaml_to_dict(file: str) -> dict:
+    """Load a YAML file into a dictionary."""
+    with open(file, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def filter_results(
+    data: pd.DataFrame,
+    score_threshold: float = 0.1
+) -> pd.DataFrame:
+    """
+    Filter out lipids with a total_score below a specified threshold, and remove duplicates.
+    
+    """
+    
+    print("Filter by total score ...")
+    
+    var_cols = [
+        "feature_id",	
+        "rt",
+        "mz_measured",
+        "mz_calculated",
+        "mz_error(ppm)",
+        "mol_formula",
+        "smiles",
+        "adduct",
+        "primary_annotated_name",
+        "structure_annotated_name",
+        "rt_score",
+        "mz_score",
+        "spec_score",
+        "total_score",
+        "fragments_ion_detection_level",
+        "fragments_spectrum_detection_level",
+    ]
+    df = data.copy()
+    df = df[df["total_score"] > score_threshold]
+    print(df.shape)
+    sample_cols = df.columns.difference(var_cols)
+    df_filtered = df[df[sample_cols].fillna(0).sum(axis=1) > 0]
+    print(df_filtered.shape)
+    df_filtered = df_filtered.drop_duplicates(subset=["structure_annotated_name"])
+        
+    print("Filter by total score done!")
+    
+    return df_filtered
+    
+
+
+def count_lipid_class(
+    data: pd.DataFrame
+) -> pd.DataFrame:
+    """对lipid class计数"""
+    
+    print("Count lipid class ...")
+    
+    mapping = {
+        "PC": "PC",
+        "PE": "PE",
+        "PI": "PI",
+        "PG": "PG",
+        "PS": "PS",
+        "DG": "DG",
+        "TG": "TG"
+    }
+    specified_order = ["PC", "PE", "PI", "PG", "PS","DG", "TG", "Others"]
+    specified_order = specified_order[::-1]
+
+    df = data.copy()
+    df["lipid_class"] = df["structure_annotated_name"].str.split(" ").str[0]
+    df["lipid_class"] = df["lipid_class"].map(mapping).fillna("Others") # 其余的均记为"Others" 
+    
+    
+    df_results = df["lipid_class"].value_counts()
+    df_results = df_results.reset_index()
+    df_results.columns = ["lipid_class", "count"]
+    df_results["lipid_class"] = pd.Categorical(
+                                    df_results["lipid_class"], 
+                                    categories=specified_order, 
+                                    ordered=True
+                                )
+    df_results = df_results.sort_values(by="lipid_class")
+    total_count = df_results["count"].sum()
+    df_results.loc[len(df_results)] = ["Total", total_count]
+    
+    print("Count lipid class done!")
+    
+    return df_results
+
+
+if __name__ == "__main__":
+    
+    NIST_PLASMA_CONFIG = {
+        "pos":{
+            "ozid_database_file": "database/clean_data/ozonolysis_delta_mass.json",
+            "ozid": {
+                "ms1_file": "example/data/nist_plasma/pos-nist_plasma-O3_quant_full.csv",
+                "ms1_file_type": "mzmine",
+                "ms2_file": "example/data/nist_plasma/pos-nist_plasma-O3.mgf",
+                "ms2_file_type": "mgf",
+            },
+            "cid": {
+                "ms1_file": "example/data/nist_plasma/pos-nist_plasma-N2_quant_full.csv",
+                "ms1_file_type": "mzmine",
+                "ms2_file": "example/data/nist_plasma/pos-nist_plasma-N2.mgf",
+                "ms2_file_type": "mgf",
+            }
+        },
+        "neg": {
+            "ozid_database_file": "database/clean_data/ozonolysis_delta_mass.json",
+            "ozid": {
+                "ms1_file": "example/data/nist_plasma/neg-nist_plasma-O3_quant_full.csv",
+                "ms1_file_type": "mzmine",
+                "ms2_file": "example/data/nist_plasma/neg-nist_plasma-O3.mgf",
+                "ms2_file_type": "mgf",
+            },
+            "cid": {
+                "ms1_file": "example/data/nist_plasma/neg-nist_plasma-N2_quant_full.csv",
+                "ms1_file_type": "mzmine",
+                "ms2_file": "example/data/nist_plasma/neg-nist_plasma-N2.mgf",
+                "ms2_file_type": "mgf",
+            }
+        },
+    }
+    
+    
+    NIST_PLASMA_PARAMS = {
+        "rt_tol": 0.5,
+        "rt_tol_mode": "absolute",
+        "mz_tol": 1.0,
+        "mz_tol_mode": "Da",
+        "ms2_spectrum_similarity_type": "ModifiedCosine",
+        "score_threshold": 0.0,
+        "sn_threshold": 2.0,
+        "top_n": 10,
+        "remove_false_positive": True,
+        "base_out_dir": "example/hyperparams_opt/Hela",
+        "rt_weight": 0.1,
+        "precursor_mz_weight": 0.1,
+        "spec_weight": 0.8,
+        "out_dir": "example/results/20260109"
+    }
+    
+    
+    config_file = "example/data/nist_plasma/nist_plasma_config.yaml"
+    params_file = "example/data/nist_plasma/nist_plasma_params_config.yaml"
+    
+    dict_to_yaml(
+        file=config_file,
+        data=NIST_PLASMA_CONFIG
+    )
+    dict_to_yaml(
+        file=params_file,
+        data=NIST_PLASMA_PARAMS
+    )
+    
+    config = yaml_to_dict(file=config_file)
+    params = yaml_to_dict(file=params_file)
+    
+    #lipid_annotator_runner = LipidAnnotatorRunner(config=config, params=params)
+    #df_results_total = lipid_annotator_runner.annotate_lipids()
+    
+    df_results_total = pd.read_csv("example/results/20260109/total_feature_table.csv")
+    print(df_results_total.shape)
+    df_filtered = filter_results(data=df_results_total, score_threshold=0.1) # 根据情况修改，文章中写的0.1
+    print(df_filtered.shape)
+    df_results = count_lipid_class(data=df_filtered)
+    print(df_results)
+    
+    out_file = os.path.join(params["out_dir"], "lipid_class_count.csv")
+    out_file = out_file.replace("\\", "/")
+    print(out_file)
+    df_results.to_csv(out_file, index=None)
+    
