@@ -1,10 +1,26 @@
+"""Main execution pipeline for automated lipid annotation in LC-MS/MS lipidomics.
+
+This module provides the top-level runner class to execute the full lipid annotation
+workflow: loading configurations, loading databases and MS data, running annotation,
+filtering false positives, and exporting final results for both positive and negative
+ion modes.
+
+Workflow:
+    1. Load reference database and experimental MS data
+    2. Initialize feature processor and lipid annotator
+    3. Run annotation for positive/negative mode separately
+    4. Remove false positives using CID/blank subtraction
+    5. Combine results and export CSV and YAML parameter files
+
+Classes:
+    LipidAnnotatorRunner: Top-level pipeline to run lipid annotation end-to-end.
+"""
+
 import os
 from typing import Tuple
 
-
 import pandas as pd
 import yaml
-
 
 from silico_ms.data_utils import DatabaseLoader, DataLoader
 from silico_ms.spectrum_utils import (
@@ -14,27 +30,47 @@ from silico_ms.spectrum_utils import (
 from silico_ms.algorithm import LipidAnnotator
 
 
-
 class LipidAnnotatorRunner:
+    """Top-level execution class for lipid annotation pipeline.
+
+    Manages configuration, data loading, annotation execution, and result
+    output for both positive and negative ionization modes.
+
+    Attributes:
+        config: Dictionary containing file paths and data settings.
+        params: Dictionary containing algorithm parameters.
+    """
+    
     def __init__(
         self,
         config: dict,
         params: dict
     ) -> None:
+        """Initialize the pipeline runner with config and parameters.
+
+        Args:
+            config: Configuration for input files and ion modes.
+            params: Parameters for scoring, filtering, and tolerance.
+        """
         self.config = config
         self.params = params
     
     def annotate_lipids(
         self,
     ) -> pd.DataFrame:
-        """Annotate lipids with given hyperparameters."""
+        """Execute full lipid annotation pipeline for positive and negative modes.
+
+        Processes both ionization modes, saves annotated results to CSV,
+        and writes configuration/parameter YAML files to output directory.
+
+        Returns:
+            pd.DataFrame: Combined annotated lipid results from both ion modes.
+        """
         out_dir = self.params["out_dir"]
         if not os.path.isdir(out_dir): 
             os.makedirs(out_dir)
         config_pos = self.config["pos"]
         config_neg = self.config["neg"]
-        
-        #print("Annotate lipids with hyperparameters:", out_dir)
         
         # pos
         print("Processing pos mode data ...")
@@ -90,7 +126,15 @@ class LipidAnnotatorRunner:
         config: dict,
         params: dict
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
+        """Run annotation pipeline for a single ionization mode.
+
+        Args:
+            config: Configuration for current ion mode.
+            params: Scoring and filtering parameters.
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]:
+                Filtered annotation results and full feature table.
         """
         ozid_database_file = config["ozid_database_file"]
         
@@ -120,12 +164,17 @@ class LipidAnnotatorRunner:
         self,
         ozid_database_file: str
     ) -> pd.DataFrame:
-        """
+        """Load lipid reference fragment database from JSON.
+
+        Args:
+            ozid_database_file: Path to ozonolysis product database.
+
+        Returns:
+            pd.DataFrame: Formatted reference lipid database.
         """
         print("Loading database ...")
         database_loader = DatabaseLoader(ozid_database_file=ozid_database_file)
         df_reference_database = database_loader.load_reference_database()
-        #print("Done!")
         
         return df_reference_database
     
@@ -134,7 +183,14 @@ class LipidAnnotatorRunner:
         params: dict,
         df_reference_database: pd.DataFrame
     ) -> LipidAnnotator:
-        """
+        """Initialize feature processor and lipid annotator with parameters.
+
+        Args:
+            params: Tolerance, weight, and scoring parameters.
+            df_reference_database: Reference lipid fragment DataFrame.
+
+        Returns:
+            LipidAnnotator: Configured lipid annotator instance.
         """
         rt_tol = params["rt_tol"]
         rt_tol_mode = params["rt_tol_mode"]
@@ -176,7 +232,15 @@ class LipidAnnotatorRunner:
         self,
         config: dict
     ) -> Tuple[pd.DataFrame]:
-        """"""
+        """Load MS1 peak tables and MS2 spectra for OzID and CID datasets.
+
+        Args:
+            config: Ion mode configuration with file paths.
+
+        Returns:
+            Tuple: Candidate features, auxiliary features, blank/CID features,
+                   and MS2 spectrum dictionary.
+        """
         print("Loading data ...")
         ozid_ms1_file_ozid = config["ozid"]["ms1_file"]
         ozid_ms1_file_type = config["ozid"]["ms1_file_type"]
@@ -206,7 +270,6 @@ class LipidAnnotatorRunner:
                                                 ms1_peak_table=ms1_peak_table_ozid
                                             )
         df_features_cid = data_loader_cid.load_ms1_peak_table()
-        #print("Done!")
         return df_candidate_features, df_auxiliary_features, df_features_cid, ms2_spectra_dict
 
     def _annotate_features(
@@ -217,7 +280,18 @@ class LipidAnnotatorRunner:
         df_features_blank: pd.DataFrame,
         ms2_spectra_dict: dict
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
+        """Run lipid annotation on processed feature tables.
+
+        Args:
+            lipid_annotator: Configured annotator instance.
+            df_candidate_features: Annotated candidate features.
+            df_auxiliary_features: Unannotated fragment features.
+            df_features_blank: Blank/CID features for false positive filtering.
+            ms2_spectra_dict: MS2 spectra lookup by feature ID.
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]:
+                Final annotation results and full annotated feature table.
         """
         print("Annotate data ...")
         df_results = lipid_annotator.annotate_features(
@@ -227,7 +301,6 @@ class LipidAnnotatorRunner:
             ms2_spectra_dict=ms2_spectra_dict,
         )
         df_results_all = lipid_annotator.get_features_all()
-        #print("Done!")
         
         return df_results, df_results_all
     
@@ -236,7 +309,16 @@ class LipidAnnotatorRunner:
         df_results_pos: pd.DataFrame,
         df_results_neg: pd.DataFrame
     ) -> pd.DataFrame:
-        """
+        """Combine positive and negative mode results with unique IDs.
+
+        Prepends 'P'/'N' to feature IDs to avoid collisions.
+
+        Args:
+            df_results_pos: Positive mode results.
+            df_results_neg: Negative mode results.
+
+        Returns:
+            pd.DataFrame: Combined annotated feature table.
         """
         df_pos = df_results_pos.copy()
         df_neg = df_results_neg.copy()
@@ -255,7 +337,11 @@ class LipidAnnotatorRunner:
         df: pd.DataFrame,
         out_file: str
     ) -> None:
-        """
+        """Save DataFrame to CSV without index.
+
+        Args:
+            df: DataFrame to save.
+            out_file: Output CSV file path.
         """
         if df is not None:
             df.to_csv(out_file, index=None)
@@ -265,6 +351,11 @@ class LipidAnnotatorRunner:
         data: dict,
         file: str
     ) -> None:
-        """Write a dictionary to a YAML file."""
+        """Write a dictionary to a YAML file.
+
+        Args:
+            data: Dictionary to save.
+            file: Output YAML file path.
+        """
         with open(file, "w", encoding="utf-8") as f:
             yaml.dump(data, f, allow_unicode=True, sort_keys=False)

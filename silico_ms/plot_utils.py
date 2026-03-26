@@ -1,16 +1,22 @@
-from typing import List
+"""Visualization utilities for mass spectrometry data and fragment networks.
 
+This module provides plotting functions to visualize:
+1. MS/MS (tandem mass spectrometry) spectra with proper formatting
+2. Empty spectrum placeholders when no MS2 data is available
+3. Lipid fragment networks with node/edge highlighting for structural annotations
+
+All functions return matplotlib Axes objects for integration into subplot layouts.
+
+Functions:
+    spectrum_plot: Plots a matchms Spectrum object with custom title.
+    none_spectrum_plot: Creates an empty plot indicating no MS/MS spectrum available.
+    fragment_network_plot: Draws a NetworkX fragment network with highlighted structural matches.
+"""
 
 import networkx as nx
-import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from matchms import Spectrum
 from matchms.plotting import plot_spectrum
-
-
-from silico_ms.algorithm import FragmentNetowrk
-
 
 
 def spectrum_plot(
@@ -19,7 +25,16 @@ def spectrum_plot(
     grid: bool = False,
     ax: Axes = None
 ) -> Axes:
-    """
+    """Plots a formatted MS/MS spectrum using matchms plotting backend.
+
+    Args:
+        spectrum: Input matchms Spectrum object containing MS2 data.
+        title: Custom title displayed above the spectrum plot.
+        grid: If True, shows grid lines on the plot.
+        ax: Matplotlib Axes object to draw the plot on. Creates new Axes if None.
+
+    Returns:
+        Axes: Matplotlib Axes with the rendered spectrum plot.
     """
     ax = plot_spectrum(
         spectrum, 
@@ -30,11 +45,21 @@ def spectrum_plot(
 
     return ax
 
+
 def none_spectrum_plot(
     title: str = "",
     ax: Axes = None
 ) -> Axes:
-    """
+    """Creates a placeholder plot indicating no MS/MS spectrum exists.
+
+    Displays centered text "No MS/MS Spectrum" with labeled axes for consistency.
+
+    Args:
+        title: Title displayed above the placeholder plot.
+        ax: Matplotlib Axes object to draw on. Creates new Axes if None.
+
+    Returns:
+        Axes: Matplotlib Axes with the empty spectrum placeholder.
     """
     ax.set_title(title)
     ax.set_xlabel("m/z")
@@ -52,13 +77,25 @@ def none_spectrum_plot(
     
     return ax
 
-
+# TODO
+'''
 def fragment_network_plot(
-    fragment_network: FragmentNetowrk,
+    fragment_network: nx.Graph,
     structure_annotated_name: str,
     ax: Axes
 ) -> Axes:
-    """
+    """Draws a fragment network graph with nodes and edges colored by feature type.
+
+    Highlights nodes that are candidate features (in-degree = 0) and edges
+    corresponding to a specific lipid structure annotation.
+
+    Args:
+        fragment_network: NetworkX Graph object representing fragment relationships.
+        structure_annotated_name: Target lipid structure name to highlight edges.
+        ax: Matplotlib Axes object for rendering the network graph.
+
+    Returns:
+        Axes: Matplotlib Axes with the rendered fragment network plot.
     """
     labels = [
         f"F{node.get_feature_id()}"
@@ -99,3 +136,4 @@ def fragment_network_plot(
     )
 
     return ax
+'''

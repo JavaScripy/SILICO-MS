@@ -2,7 +2,6 @@ import os
 import itertools
 from typing import Tuple, List
 
-
 import yaml
 import numpy as np
 import pandas as pd
@@ -13,7 +12,6 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FormatStrFormatter
 
-
 from silico_ms.pipeline_runner import LipidAnnotatorRunner
 
 
@@ -21,28 +19,55 @@ def dict_to_yaml(
     file: str,
     data: dict
 ) -> None:
-    """Write a dictionary to a YAML file."""
+    """Write a dictionary to a YAML file.
+
+    Args:
+        file: Path to output YAML file
+        data: Dictionary to be saved
+    """
     with open(file, "w", encoding="utf-8") as f:
         yaml.dump(data, f, allow_unicode=True, sort_keys=False)
-    
+
 
 def yaml_to_dict(file: str) -> dict:
-    """Load a YAML file into a dictionary."""
+    """Load a YAML file into a dictionary.
+
+    Args:
+        file: Path to input YAML file
+
+    Returns:
+        dict: Loaded configuration dictionary
+    """
     with open(file, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
 
 
 class HyperparamOptimizer:
-    
+    """Grid search optimizer for lipid annotation hyperparameters.
+
+    Supports optimization of:
+        - Retention time, m/z, and spectrum scoring weights
+        - MS2 spectrum similarity calculation types
+
+    Attributes:
+        config: Data and file path configuration
+        params: Base annotation parameters
+    """
+
     def __init__(
         self,
         config: dict,
         params: dict
     ) -> None:
+        """Initialize hyperparameter optimizer.
+
+        Args:
+            config: Data configuration dictionary
+            params: Annotation parameter dictionary
+        """
         self.config = config
         self.params = params
-    
     
     def optimize(
         self,
@@ -50,8 +75,16 @@ class HyperparamOptimizer:
         score_col: str ="total_score",
         mode: str = "weights"
     ) -> pd.DataFrame:
-        """"""
-        
+        """Run hyperparameter optimization based on selected mode.
+
+        Args:
+            feature_id_col: Column name for feature IDs
+            score_col: Column name for total annotation score
+            mode: Optimization mode ("weights" or "spec_sim_type")
+
+        Returns:
+            pd.DataFrame: Combined metrics for all parameter combinations
+        """
         match mode:
             case "weights":
                 params_list = self._prepare_params_list_weights(params=self.params)
@@ -82,12 +115,18 @@ class HyperparamOptimizer:
         
         return df_metrics_total
 
-
     def _prepare_params_list_weights(
         self,
         params: dict
     ) -> List[dict]:
-        """Prepare a list of parameter dictionaries for grid search."""
+        """Generate parameter combinations for scoring weight grid search.
+
+        Args:
+            params: Base parameter dictionary
+
+        Returns:
+            List[dict]: List of parameter sets for grid search
+        """
         weight_step = params["weight_step"]
         equalize_weights = params["equalize_weights"]
         n = max(1, int(np.round(1 / weight_step)))
@@ -112,9 +151,6 @@ class HyperparamOptimizer:
         params_list = []
         for idx, row in df_weights.iterrows():
             params_copy = params.copy()
-            #params_copy["rt_weight"] = float(rt_weights[idx])
-            #params_copy["precursor_mz_weight"] = float(precursor_mz_weights[idx])
-            #params_copy["spec_weight"] = float(spec_weights[idx])
             params_copy["rt_weight"] = float(row["rt_weight"])
             params_copy["precursor_mz_weight"] = float(row["precursor_mz_weight"])
             params_copy["spec_weight"] = float(row["spec_weight"])
@@ -131,7 +167,14 @@ class HyperparamOptimizer:
         self,
         params: dict
     ) -> List[dict]:
-        """"""
+        """Generate parameter sets for spectrum similarity type evaluation.
+
+        Args:
+            params: Base parameter dictionary
+
+        Returns:
+            List[dict]: Parameter sets with different spectrum similarity types
+        """
         out_dir_suffix = "spec_similarity_type"
         spec_sim_types = params["ms2_spectrum_similarity_type"]
         
@@ -154,7 +197,16 @@ class HyperparamOptimizer:
         feature_id_col="feature_id", 
         score_col="total_score"
     ) -> List[pd.DataFrame]:
-        """Perform a grid search over hyperparameters."""
+        """Core grid search loop for hyperparameter optimization.
+
+        Args:
+            params_list: List of parameter combinations
+            feature_id_col: Feature ID column name
+            score_col: Total score column name
+
+        Returns:
+            List[pd.DataFrame]: Metrics for each parameter set
+        """
         df_results_total_list = self.annotate_features(params_list=params_list)
         
         zip_list = list(zip(df_results_total_list, params_list))
@@ -174,7 +226,14 @@ class HyperparamOptimizer:
         self,
         params_list: List[dict]
     ) -> Tuple[List[pd.DataFrame], List[dict]]:
-        """"""
+        """Run lipid annotation for all parameter sets.
+
+        Args:
+            params_list: List of annotation parameter dictionaries
+
+        Returns:
+            List[pd.DataFrame]: Annotation results for each parameter set
+        """
         df_results_total_list = [
             self._run_lipid_annotator(
                 config=self.config,
@@ -189,7 +248,15 @@ class HyperparamOptimizer:
         config: dict,
         params: dict
     ) -> pd.DataFrame:
-        """"""
+        """Initialize and run lipid annotation for one parameter set.
+
+        Args:
+            config: Data configuration
+            params: Annotation parameters
+
+        Returns:
+            pd.DataFrame: Combined annotation results
+        """
         runner = LipidAnnotatorRunner(config=config, params=params)
         df_results_total = runner.annotate_lipids()
         
@@ -202,7 +269,17 @@ class HyperparamOptimizer:
         feature_id_col: str = "feature_id",
         score_col: str = "total_score"
     ) -> pd.DataFrame:
-        """"""
+        """Compute quality metrics and combine with parameters.
+
+        Args:
+            data: Annotation results
+            params: Parameter set used
+            feature_id_col: Feature ID column
+            score_col: Total score column
+
+        Returns:
+            pd.DataFrame: Metrics with corresponding parameters
+        """
         df_results = data.copy()
         df_summary = self._compute_metrics(
                         data=df_results, 
@@ -238,7 +315,16 @@ class HyperparamOptimizer:
         feature_id_col: str = "feature_id",
         score_col: str = "score"
     ) -> pd.DataFrame:
-        """"""
+        """Compute annotation confidence metrics per feature.
+
+        Args:
+            data: Annotation results
+            feature_id_col: Feature ID column
+            score_col: Score column name
+
+        Returns:
+            pd.DataFrame: Calculated confidence metrics
+        """
         df = data[[feature_id_col, score_col]].copy()
         df[feature_id_col] = df[feature_id_col].astype(str)
         df[score_col] = df[score_col].astype(float)
@@ -289,7 +375,14 @@ class HyperparamOptimizer:
         self,
         scores: pd.Series
     ) -> float:
-        """"""
+        """Compute normalized entropy of annotation scores.
+
+        Args:
+            scores: Series of annotation scores
+
+        Returns:
+            float: Normalized entropy value
+        """
         probs = scores / scores.sum()
         entropy = -np.sum(probs * np.log2(probs))
         k = len(scores)
@@ -303,7 +396,16 @@ class HyperparamOptimizer:
         params: dict,
         mode: str = "weights"
     ) -> pd.DataFrame:
-        ""
+        """Combine and save all metrics across parameter sets.
+
+        Args:
+            df_list: List of metric DataFrames
+            params: Base parameters
+            mode: Optimization mode
+
+        Returns:
+            pd.DataFrame: Combined metrics
+        """
         df_metrics_list = df_list.copy()
         match mode:
             case "weights":
@@ -327,6 +429,17 @@ class HyperparamOptimizer:
    
 
 class MetricsPlotter:
+    """Visualization tool for lipid annotation quality metrics.
+
+    Generates boxplots for:
+        - Scoring weight optimization
+        - Spectrum similarity type comparison
+
+    Attributes:
+        out_dir: Default output directory for plots
+        metrics_list: List of metric names to plot
+    """
+
     def __init__(
         self, 
         out_dir: str = ""
@@ -350,6 +463,14 @@ class MetricsPlotter:
         figsize: Tuple[float, float] = (5, 5),
         mode: str = "weights"
     ) -> None:
+        """Generate boxplots for selected optimization mode.
+
+        Args:
+            df_metrics: Combined metrics DataFrame
+            out_dir: Plot output directory
+            figsize: Figure size (width, height)
+            mode: Plot type ("weights" or "spec_sim_type")
+        """
         if out_dir is None:
             out_dir = self.out_dir
         
@@ -378,7 +499,13 @@ class MetricsPlotter:
         out_dir: str,
         figsize: Tuple[float, float] = (5, 5)
     ) -> None:
+        """Create boxplots for scoring weight optimization results.
 
+        Args:
+            df_metrics: Metrics DataFrame
+            out_dir: Output directory
+            figsize: Figure size
+        """
         df_tmp = df_metrics.copy()
         removed_columns = [
             "work_dir", "feature_id", "spec_sim_type",
@@ -417,6 +544,19 @@ class MetricsPlotter:
         metrics: str = "",
         figsize: Tuple[float, float] = (6, 5)
     ) -> Tuple[Figure, Axes]:
+        """Draw single boxplot for weight optimization metric.
+
+        Args:
+            data: Plot data
+            x: X-axis column
+            y: Y-axis column
+            hue: Grouping column
+            metrics: Metric name
+            figsize: Figure size
+
+        Returns:
+            Tuple[Figure, Axes]: Matplotlib figure and axes
+        """
         fig, ax = plt.subplots(figsize=figsize)
         ax: Axes = ax
         ax = sns.boxplot(
@@ -443,7 +583,13 @@ class MetricsPlotter:
         out_dir: str,
         figsize: Tuple[float, float] = (5, 5)
     ) -> None:
-        """"""
+        """Create boxplots for spectrum similarity type comparison.
+
+        Args:
+            df_metrics: Metrics DataFrame
+            out_dir: Output directory
+            figsize: Figure size
+        """
         removed_columns = [
             "work_dir", "feature_id", 
             "rt_weight", "precursor_mz_weight", "spec_weight", 
@@ -480,6 +626,18 @@ class MetricsPlotter:
         metrics: str = "",
         figsize: Tuple[float, float] = (5, 5)
     ) -> Tuple[Figure, Axes]:
+        """Draw single boxplot for spectrum similarity metric.
+
+        Args:
+            data: Plot data
+            x: X-axis column
+            y: Y-axis column
+            metrics: Metric name
+            figsize: Figure size
+
+        Returns:
+            Tuple[Figure, Axes]: Matplotlib figure and axes
+        """
         fig, ax = plt.subplots(figsize=figsize)
         ax: Axes = ax
         ax = sns.boxplot(
@@ -499,12 +657,19 @@ class MetricsPlotter:
         return fig, ax
 
 
-
-
 def run_optimize_weights(
     config: dict,
     weights_params: dict
 ) -> pd.DataFrame:
+    """Run weight optimization workflow.
+
+    Args:
+        config: Data configuration
+        weights_params: Weight optimization parameters
+
+    Returns:
+        pd.DataFrame: Optimization metrics
+    """
     optimizer_equal = HyperparamOptimizer(
                             config=config,
                             params=weights_params
@@ -518,6 +683,15 @@ def run_optimize_spec_sim_type(
     config: dict,
     spec_params: dict
 ) -> pd.DataFrame:
+    """Run spectrum similarity type optimization.
+
+    Args:
+        config: Data configuration
+        spec_params: Spectrum similarity parameters
+
+    Returns:
+        pd.DataFrame: Optimization metrics
+    """
     optimizer_spec_sim = HyperparamOptimizer(
                             config=config,
                             params=spec_params
@@ -528,7 +702,7 @@ def run_optimize_spec_sim_type(
 
 
 def run_optimize_hela() -> None:
-    """"""
+    """Run full hyperparameter optimization for Hela cell dataset."""
     HELA_CONFIG = {
         "pos":{
             "ozid_database_file": "database/clean_data/ozonolysis_delta_mass.json",
@@ -642,7 +816,7 @@ def run_optimize_hela() -> None:
 
 
 def run_optimize_nist_plasma() -> None:
-    """"""
+    """Run full hyperparameter optimization for NIST plasma dataset."""
     NIST_PLASMA_CONFIG = {
         "pos":{
             "ozid_database_file": "database/clean_data/ozonolysis_delta_mass.json",
@@ -765,31 +939,5 @@ def run_optimize_nist_plasma() -> None:
 
 
 if __name__ == "__main__":
-    
-    #run_optimize_hela()
+    run_optimize_hela()
     run_optimize_nist_plasma()
-    """
-    metrics_weights_file = "example/hyperparams_opt/nist_plasma/equal_param_set_metrics.csv"
-    metrics_spec_sim_file = "example/hyperparams_opt/nist_plasma/spec_sim_type_metrics.csv"
-    df_metrics_spec_sim = pd.read_csv(
-                            metrics_weights_file,
-                            keep_default_na=False, 
-                            na_values=["", "NULL", "NA"]
-                        )
-    df_metrics_weights = pd.read_csv(metrics_spec_sim_file)
-    
-    metrics_plotter = MetricsPlotter(out_dir="example/hyperparams_opt/nist-plasma-figures")
-    metrics_plotter.metrics_boxplot(
-        df_metrics=df_metrics_spec_sim, 
-        mode="spec_sim_type",
-        out_dir="example/hyperparams_opt/nist-plasma-figures",
-        figsize=(5, 5)
-    )    
-    metrics_plotter.metrics_boxplot(
-        df_metrics=df_metrics_weights, 
-        mode="weights",
-        out_dir="example/hyperparams_opt/nist-plasma-figures",
-        figsize=(5, 5)
-    )
-    """
-

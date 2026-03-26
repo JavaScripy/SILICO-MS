@@ -1,4 +1,24 @@
 
+"""Core processing utilities for lipidomics LC-MS/MS feature analysis.
+
+This module provides functions and classes for:
+1. Splitting MS1 features into annotated candidates and unannotated auxiliaries
+2. Mapping MS2 spectra to feature IDs for fast lookup
+3. Checking lipid double bond status from annotation names
+4. Spectrum-feature processing with RT/mz filtering and similarity scoring
+5. Calculating multi-modal similarity (RT + m/z + MS2 spectrum)
+6. Searching similar features using retention time and mass tolerance
+
+Classes:
+    SpectrumFeatureProcesser: Main processor for feature filtering and similarity calculation.
+
+Functions:
+    split_features: Separates candidate and auxiliary LC-MS features.
+    ms2_spectra_to_dict: Creates a feature ID -> Spectrum lookup dictionary.
+    get_spec_from_feature: Retrieves MS2 spectrum by feature ID.
+    is_lipid_has_double_bond: Checks if lipid annotation indicates zero double bonds.
+"""
+
 from typing import List, Tuple, Dict
 import re
 
@@ -14,38 +34,72 @@ from matchms import Spectrum
 def split_features(
     ms1_peak_table: pd.DataFrame
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Splits MS1 peak table into candidate and auxiliary features.
+
+    Candidate features have non-empty primary annotations.
+    Auxiliary features have no primary annotations.
+
+    Args:
+        ms1_peak_table: DataFrame containing all LC-MS features.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]:
+            DataFrames for candidate features and auxiliary features.
+    """
     df_candidate_features = ms1_peak_table[ms1_peak_table["primary_annotated_name"] != ""]
     df_auxiliary_features = ms1_peak_table[ms1_peak_table["primary_annotated_name"] == ""]
     
     return df_candidate_features, df_auxiliary_features
 
-def ms2_spectra_to_dict(ms2_spectra: List[Spectrum]) -> Dict[str, Spectrum]:
-    return {
-            spec.get("feature_id"): spec
-            for spec in ms2_spectra
-    }
 
-def get_spec_from_feature(
-        feature: pd.Series,
-        spectra_dict: dict
-    ) -> Spectrum:
-    """Get spectrum by feature ID.
+def ms2_spectra_to_dict(
+    ms2_spectra: List[Spectrum]
+) -> Dict[str, Spectrum]:
+    """Converts list of MS2 spectra into a feature ID lookup dictionary.
 
-    Parameters:
-        feature:
-            LC-MS feature.
-        spectra:
-            All of MS/MS spectra.
+    Args:
+        ms2_spectra: List of matchms Spectrum objects with feature_id metadata.
 
     Returns:
-        MS/MS Spectrum of the feature.
+        Dict[str, Spectrum]: Dictionary mapping feature_id to Spectrum.
+    """
+    return {
+        spec.get("feature_id"): spec
+        for spec in ms2_spectra
+    }
+
+
+def get_spec_from_feature(
+    feature: pd.Series,
+    spectra_dict: dict
+) -> Spectrum:
+    """Retrieves the corresponding MS/MS spectrum for a given feature.
+
+    Looks up the spectrum using the feature_id stored in the feature Series.
+
+    Args:
+        feature: Pandas Series containing a single LC-MS feature with feature_id.
+        spectra_dict: Dictionary mapping feature_id strings to Spectrum objects.
+
+    Returns:
+        Spectrum: Matching MS/MS Spectrum if found; None otherwise.
     """
     feature_id = feature.get("feature_id")
-    
     return spectra_dict.get(feature_id, None)
 
+
 def is_lipid_has_double_bond(primary_annotated_name: str) -> bool:
-    """"""
+    """Checks if lipid annotation indicates zero double bonds.
+
+    Extracts numbers after colon (e.g., 18:0 → 0 double bonds)
+    and returns True if all values are zero.
+
+    Args:
+        primary_annotated_name: Lipid annotation string.
+
+    Returns:
+        bool: True if lipid has no double bonds, False otherwise.
+    """
     double_bond_list = re.findall(r':(.)', primary_annotated_name)
     double_bond_list = [
             int(double_bond) 
@@ -55,6 +109,24 @@ def is_lipid_has_double_bond(primary_annotated_name: str) -> bool:
 
 
 class SpectrumFeatureProcesser:
+    """Handles LC-MS feature filtering, scoring, and similarity calculations.
+
+    Provides configurable tolerance for retention time and m/z,
+    supports multiple spectrum similarity algorithms,
+    and computes combined similarity scores for lipid fragment matching.
+
+    Attributes:
+        rt_tol: Retention time tolerance threshold.
+        rt_tol_mode: "absolute" or "relative" tolerance mode.
+        mz_tol: Precursor m/z tolerance threshold.
+        mz_tol_mode: "Da" or "ppm" tolerance unit.
+        rt_weight: Weight for RT in total similarity score.
+        precursor_mz_weight: Weight for m/z in total similarity score.
+        spec_weight: Weight for MS2 spectrum in total similarity score.
+        feature_sim_rt_weight: Weight for RT in fast feature search.
+        feature_sim_mz_weight: Weight for m/z in fast feature search.
+        spectrum_similarity: Configured matchms similarity metric.
+    """
     def __init__(
         self,
         rt_tol: float = 0.5,
@@ -68,6 +140,20 @@ class SpectrumFeatureProcesser:
         feature_sim_mz_weight: float = 0.0,
         ms2_spectrum_similarity_type: str = "None"
     ):
+        """Initializes feature processor with tolerance and weighting parameters.
+
+        Args:
+            rt_tol: Retention time tolerance.
+            rt_tol_mode: "absolute" or "relative".
+            mz_tol: Precursor m/z tolerance.
+            mz_tol_mode: "Da" or "ppm".
+            rt_weight: Weight of RT in total score.
+            precursor_mz_weight: Weight of m/z in total score.
+            spec_weight: Weight of MS2 spectrum in total score.
+            feature_sim_rt_weight: RT weight for fast similar feature search.
+            feature_sim_mz_weight: m/z weight for fast similar feature search.
+            ms2_spectrum_similarity_type: Spectrum similarity method name.
+        """
         self.rt_tol = rt_tol
         self.rt_tol_mode = rt_tol_mode
         self.mz_tol = mz_tol
@@ -89,7 +175,20 @@ class SpectrumFeatureProcesser:
         similarity_type: str = "None",
         mz_tol: float = 0.1
     ) -> BaseSimilarity:
+        """Initializes spectrum similarity metric from configuration string.
 
+        Supports multiple cosine-based algorithms with preset parameters.
+
+        Args:
+            similarity_type: Name of similarity method.
+            mz_tol: m/z tolerance for peak matching.
+
+        Returns:
+            BaseSimilarity: Initialized matchms similarity object.
+
+        Raises:
+            ValueError: If unknown similarity type is provided.
+        """
         match similarity_type:
             case "NIST-LC":
                 spectrum_similarity = CosineGreedy(
@@ -149,6 +248,18 @@ class SpectrumFeatureProcesser:
         df_features: pd.DataFrame,
         rt_theory: float
     ) -> pd.DataFrame:
+        """Filters features by retention time tolerance.
+
+        Args:
+            df_features: DataFrame of LC-MS features.
+            rt_theory: Target retention time to filter around.
+
+        Returns:
+            pd.DataFrame: Filtered features within RT tolerance.
+
+        Raises:
+            ValueError: If invalid rt_tol_mode is used.
+        """
         rt1 = df_features.get("rt")
         rt2 = rt_theory
 
@@ -167,8 +278,18 @@ class SpectrumFeatureProcesser:
         df_features: pd.DataFrame,
         precursor_mz_theory: float,
     ) -> pd.DataFrame:
-        """"""
+        """Filters features by precursor m/z tolerance.
 
+        Args:
+            df_features: DataFrame of LC-MS features.
+            precursor_mz_theory: Target precursor m/z to filter around.
+
+        Returns:
+            pd.DataFrame: Filtered features within m/z tolerance.
+
+        Raises:
+            ValueError: If invalid mz_tol_mode is used.
+        """
         mz1 = df_features.get("precursor_mz")
         mz2 = precursor_mz_theory
 
@@ -192,7 +313,20 @@ class SpectrumFeatureProcesser:
         mz_delta: float,
         ms2_spectra_dict: dict
     ) -> pd.Series:
-        """Calculate similarity between two spectrum feature."""
+        """Calculates multi-modal similarity between two features.
+
+        Computes RT, m/z, and MS2 spectrum similarities,
+        then returns weighted total score.
+
+        Args:
+            feature1: First LC-MS feature.
+            feature2: Second LC-MS feature.
+            mz_delta: Mass delta for m/z comparison.
+            ms2_spectra_dict: Spectrum lookup dictionary.
+
+        Returns:
+            pd.Series: Individual scores and total similarity score.
+        """
         rt_sim = self._rt_similarity(
                     feature1=feature1,
                     feature2=feature2
@@ -207,12 +341,10 @@ class SpectrumFeatureProcesser:
                     feature2=feature2,
                     ms2_spectra_dict=ms2_spectra_dict,
                 )
-
         feature_sim = rt_sim * self.rt_weight + \
                         mz_sim * self.precursor_mz_weight + \
                         spec_sim * self.spec_weight
 
-        #return feature_sim
         return pd.Series({
             "rt_score": rt_sim,
             "mz_score": mz_sim,
@@ -225,7 +357,17 @@ class SpectrumFeatureProcesser:
         feature1: pd.Series,
         feature2: pd.Series
     ) -> float:
-        """Calculate similarity of retention time (RT)."""
+        """Calculates normalized retention time similarity.
+
+        Returns 1.0 for perfect match, decreases linearly to 0 at tolerance limit.
+
+        Args:
+            feature1: First feature.
+            feature2: Second feature.
+
+        Returns:
+            float: RT similarity score between 0 and 1.
+        """
         rt1 = feature1.get("rt")
         rt2 = feature2.get("rt")
 
@@ -252,8 +394,16 @@ class SpectrumFeatureProcesser:
         feature2: pd.Series,
         mz_delta: float,
     ) -> float:
-        """Calculate similarity of precursor m/z."""
-        
+        """Calculates normalized precursor m/z similarity with mass delta.
+
+        Args:
+            feature1: First feature.
+            feature2: Second feature.
+            mz_delta: Mass shift applied to feature2 m/z.
+
+        Returns:
+            float: m/z similarity score between 0 and 1.
+        """
         mz1 = feature1.get("precursor_mz")
         mz2 = feature2.get("precursor_mz") + mz_delta
 
@@ -281,8 +431,18 @@ class SpectrumFeatureProcesser:
         feature2: pd.Series,
         ms2_spectra_dict: dict
     ) -> float:
-        """Calculate similarity of MS/MS spctrum."""
+        """Calculates MS2 spectrum similarity between two features.
 
+        Returns 0 if either spectrum is missing.
+
+        Args:
+            feature1: First feature.
+            feature2: Second feature.
+            ms2_spectra_dict: Lookup dict for MS2 spectra.
+
+        Returns:
+            float: Spectrum similarity score between 0 and 1.
+        """
         spec1 = get_spec_from_feature(
                     feature=feature1, 
                     spectra_dict=ms2_spectra_dict
@@ -291,18 +451,12 @@ class SpectrumFeatureProcesser:
                     feature=feature2, 
                     spectra_dict=ms2_spectra_dict
                 )
-        
-        #print("spec1: ", spec1)
-        #print("spec2: ", spec2)
 
         if spec1 is None or spec2 is None:
             spec_sim = 0.0
         else:
             score = self.spectrum_similarity.pair(spec1, spec2)
             spec_sim =  float(score["score"])
-        
-        #if spec_sim > 0.4:
-        #    print("spec_sim:", spec_sim)
 
         return spec_sim
 
@@ -311,10 +465,19 @@ class SpectrumFeatureProcesser:
         feature: pd.Series,
         df_features_blank: pd.DataFrame,
     ) -> pd.DataFrame:
-        """
+        """Searches for the most similar auxiliary feature.
+
+        Filters by RT and m/z, computes similarity score,
+        returns top-1 similar feature with annotation propagation.
+
+        Args:
+            feature: Query candidate feature.
+            df_features_blank: Auxiliary (unannotated) features to search.
+
+        Returns:
+            pd.DataFrame: Top similar feature with propagated annotations.
         """
         rt, mz = feature.get("rt"), feature.get("precursor_mz")
-        
         df = self.filter_by_rt(
                 df_features=df_features_blank, 
                 rt_theory=rt

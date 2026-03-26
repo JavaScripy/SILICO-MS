@@ -1,7 +1,20 @@
+"""Standalone lipid annotation script for Hela cell line dataset.
+
+This script executes end-to-end lipid annotation for positive and negative
+ion mode LC-MS/MS data. It loads reference databases, processes MS1 and MS2 data,
+performs lipid identification, removes false positives, and exports
+annotation results to CSV files.
+
+Workflow:
+    1. Load lipid fragment reference database
+    2. Initialize feature processor and lipid annotator
+    3. Process positive ion mode data
+    4. Process negative ion mode data
+    5. Export annotation results and full feature tables
+"""
+
 from typing import Tuple, List
-#import pickle
 from matchms import Spectrum
-import numpy as np
 import pandas as pd
 
 from silico_ms.data_utils import DatabaseLoader, DataLoader
@@ -12,14 +25,23 @@ from silico_ms.spectrum_utils import (
 from silico_ms.algorithm import LipidAnnotator
 
 
-
 def get_features(
     ms1_file: str,
     ms1_file_type: str,
     ms2_file: str,
     ms2_file_type: str
 ) -> Tuple[pd.DataFrame, pd.DataFrame, List[Spectrum]]:
-    """
+    """Load and split MS data into candidate and auxiliary features.
+
+    Args:
+        ms1_file: Path to MS1 peak table file
+        ms1_file_type: Format of MS1 file (e.g., mzmine)
+        ms2_file: Path to MS2 spectrum file
+        ms2_file_type: Format of MS2 file (e.g., mgf)
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame, List[Spectrum]]:
+            Candidate features, auxiliary features, and MS2 spectra list
     """
     data_loader = DataLoader(
                     ms1_file=ms1_file, 
@@ -34,8 +56,6 @@ def get_features(
                                                 ms1_peak_table=ms1_peak_table
                                             )
     return df_candidate_features, df_auxiliary_features, ms2_spectra
-    
-    
 
 
 if __name__ == "__main__":

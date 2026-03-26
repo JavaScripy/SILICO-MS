@@ -1,7 +1,20 @@
+"""Standalone lipid annotation script for mouse liver dataset.
+
+This script runs end-to-end lipid annotation for positive and negative
+ion mode LC-MS/MS data. It loads MS data, initializes annotation parameters,
+runs lipid identification, performs false positive filtering,
+and exports annotated results to CSV files.
+
+Workflow:
+    1. Load lipid fragment reference database
+    2. Initialize feature processor and lipid annotator
+    3. Load positive/negative ion mode MS1 and MS2 data
+    4. Run lipid annotation for each ion mode
+    5. Export annotation results and full feature tables
+"""
+
 from typing import Tuple, List
-#import pickle
 from matchms import Spectrum
-import numpy as np
 import pandas as pd
 
 from silico_ms.data_utils import DatabaseLoader, DataLoader
@@ -12,14 +25,24 @@ from silico_ms.spectrum_utils import (
 from silico_ms.algorithm import LipidAnnotator
 
 
-
 def get_features(
     ms1_file: str,
     ms1_file_type: str,
     ms2_file: str,
     ms2_file_type: str
 ) -> Tuple[pd.DataFrame, pd.DataFrame, List[Spectrum]]:
-    """
+    """Load and preprocess LC-MS/MS data into candidate and auxiliary features.
+
+    Args:
+        ms1_file: Path to MS1 peak table CSV file
+        ms1_file_type: Format of MS1 file (e.g., mzmine)
+        ms2_file: Path to MS2 spectrum file (e.g., mgf)
+        ms2_file_type: Format of MS2 file (e.g., mgf)
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame, List[Spectrum]]:
+            Candidate features (annotated), auxiliary features (unannotated),
+            and list of MS2 Spectrum objects
     """
     data_loader = DataLoader(
                     ms1_file=ms1_file, 
@@ -34,8 +57,6 @@ def get_features(
                                                 ms1_peak_table=ms1_peak_table
                                             )
     return df_candidate_features, df_auxiliary_features, ms2_spectra
-    
-    
 
 
 if __name__ == "__main__":
@@ -56,7 +77,6 @@ if __name__ == "__main__":
     database_loader = DatabaseLoader(ozid_database_file=ozid_database_file)
     df_reference_database = database_loader.load_reference_database()
     print("Done!")
-    
     
     feature_processer = SpectrumFeatureProcesser(
                             rt_tol=rt_tol,

@@ -1,14 +1,46 @@
+"""Lipid annotation and scoring module for LC-MS/MS lipidomics data analysis.
+
+This module implements the core lipid annotation logic using reference databases
+and feature similarity matching. It identifies lipid C=C double bond positions
+by matching candidate features with theoretical fragment patterns.
+
+Key functionalities:
+1. Annotate candidate lipid features using a reference lipid database
+2. Filter and score fragment features by RT, m/z, and MS2 spectrum similarity
+3. Remove false positive annotations using blank subtraction
+4. Calculate confidence scores and detection levels for lipid identifications
+5. Generate quantified and formatted annotation results
+
+Classes:
+    LipidAnnotator: Main class for automated lipid annotation and scoring.
+"""
 
 from typing import List
 import pandas as pd
 from tqdm import tqdm
 tqdm.pandas(desc="Lipid C=C annotation") 
 
-
 from silico_ms.spectrum_utils import SpectrumFeatureProcesser
 
 
 class LipidAnnotator:
+    """Main class for lipid feature annotation and scoring.
+
+    Manages the annotation pipeline: matching candidate features to reference
+    lipid fragments, filtering by similarity thresholds, removing false positives,
+    and computing final annotation scores.
+
+    Attributes:
+        reference_database: DataFrame of reference lipid fragment patterns.
+        feature_processer: Instance for feature filtering and similarity calculation.
+        score_threshold: Minimum total score for valid annotations.
+        top_n: Number of top-scoring annotations to retain.
+        remove_false_positive: Enable blank subtraction for noise filtering.
+        sn_threshold: S/N threshold for false positive filtering.
+        epsilon: Small value to avoid division by zero.
+        var_columns: List of metadata/annotation columns.
+    """
+    
     def __init__(
         self,
         df_reference_database: pd.DataFrame,
@@ -18,9 +50,18 @@ class LipidAnnotator:
         remove_false_positive: bool = False,
         sn_threshold: float = 1.0,
         epsilon: float = 1e-3
-        #aldehyde_feature_weight: float = 0.5,
-        #criegee_feature_weight: float = 0.5
     ):
+        """Initialize LipidAnnotator with parameters and reference data.
+
+        Args:
+            df_reference_database: Reference lipid fragment database.
+            feature_processer: Pre-configured feature processor.
+            score_threshold: Minimum score threshold for annotations.
+            top_n: Keep top N highest-scoring lipid structures.
+            remove_false_positive: Enable blank-based noise removal.
+            sn_threshold: Signal-to-noise threshold for filtering.
+            epsilon: Small constant for numerical stability.
+        """
         self.reference_database = df_reference_database
         self.feature_processer = feature_processer
         self.score_threshold = score_threshold
@@ -29,18 +70,19 @@ class LipidAnnotator:
         self.sn_threshold = sn_threshold
         self.epsilon = epsilon
         self.var_columns = self.set_var_columns()
-        #self.aldehyde_feature_weight = aldehyde_feature_weight
-        #self.criegee_feature_weight = criegee_feature_weight
         
     def set_var_columns(self) -> List[str]:
-        """"""
+        """Define fixed metadata and annotation column names.
+
+        Returns:
+            List[str]: List of core feature annotation columns.
+        """
         var_columns = [
             "feature_id",
             "rt",
             "precursor_mz",
             "mz_calculated",
             "mol_formula",
-            # add smiles
             "smiles",
             "adduct",
             "fragment_mz_delta",
@@ -48,12 +90,10 @@ class LipidAnnotator:
             "structure_annotated_name",
             "fragment_fatty_acid_pos",
             "fragment_types",
-            #"score",
             "rt_score",
             "mz_score",
             "spec_score",
             "total_score",
-            # fragments level
             "fragments_ion_detection_level",
             "fragments_spectrum_detection_level",
         ]
@@ -66,20 +106,20 @@ class LipidAnnotator:
         df_features_blank: pd.DataFrame,
         ms2_spectra_dict: dict,
     ) -> pd.DataFrame:
+        """Main pipeline to annotate all candidate lipid features.
 
-        # (1) 将features分为candidate_features和auxiliary_features (二分图)
-        # (2) 从candidate_features中任选一个feature
-        # (3) 根据precursor_mz和rt从auxiliary_features中
-        #     选出用于注释candidate feature的特征，称为fragment_features
-        # (4) 计算每个fragment_feature的分数，
-        #     同一个fragment中取分数最高的feature，作为该fragment的fragment_feature
-        # (5) 将fragment_feature的分数"加权平均"，即为candidate_features的分数
-        #
-        #  Tips: 一个feature_id使用一个图 (graph)
-        #
-        #  根据reference_database获取当前primary_annotated_name对应的所有structure_annotated_name
-        #  根据评分对所有的structure_annotated_name进行排序, 挑选超过score_threshold的top_n保留
-        #
+        Processes each candidate feature by matching against reference fragments,
+        scoring, filtering, and aggregating results into a final DataFrame.
+
+        Args:
+            df_candidate_features: Annotated candidate features.
+            df_auxiliary_features: Unannotated fragment candidates.
+            df_features_blank: Blank/control features for noise removal.
+            ms2_spectra_dict: MS2 spectra lookup by feature_id.
+
+        Returns:
+            pd.DataFrame: Final annotated lipid results.
+        """
         self.features_all = pd.DataFrame()
         df_result_list = df_candidate_features.progress_apply(
             self._annotate_feature_single, 
@@ -101,7 +141,24 @@ class LipidAnnotator:
         df_features_blank: pd.DataFrame,
         ms2_spectra_dict: dict
     ) -> pd.DataFrame:
-        """"""
+        """Annotate one single candidate feature.
+
+        Internal workflow:
+        1. Retrieve reference lipids
+        2. Find matching fragment features
+        3. Optional false positive filtering
+        4. Score and select top candidates
+        5. Quantify and assemble output
+
+        Args:
+            candidate_feature: Single lipid feature to annotate.
+            df_auxiliary_features: Pool of potential fragment features.
+            df_features_blank: Blank features for noise removal.
+            ms2_spectra_dict: MS2 spectra lookup dict.
+
+        Returns:
+            pd.DataFrame: Annotation result for the candidate.
+        """
         df_reference_lipids = self.get_refence_lipids(
                                 candidate_feature=candidate_feature
                             )
@@ -149,7 +206,6 @@ class LipidAnnotator:
                                 df_fragment_features=df_fragment_features_filter
                             )
         
-        # drop na
         df_result = df_result.dropna(axis=1, how="all")
         df_fragment_features_filter = df_fragment_features_filter.dropna(axis=1, how="all")
         
@@ -169,7 +225,14 @@ class LipidAnnotator:
         self,
         candidate_feature: dict
     ) -> pd.DataFrame:
-        """"""
+        """Retrieve reference lipid entries matching the candidate annotation.
+
+        Args:
+            candidate_feature: Feature with primary_annotated_name.
+
+        Returns:
+            pd.DataFrame: Matching reference lipid fragments.
+        """
         primary_annotated_name = candidate_feature.get("primary_annotated_name")
         df = self.reference_database.copy()
         df_reference_lipids = df[df["primary_annotated_name"] == primary_annotated_name]
@@ -183,6 +246,17 @@ class LipidAnnotator:
         df_auxiliary_features: pd.DataFrame,
         ms2_spectra_dict: dict
     ) -> pd.DataFrame:
+        """Generate fragment features by matching reference patterns to observed features.
+
+        Args:
+            df_reference_lipids: Reference fragment patterns.
+            candidate_feature: Parent lipid feature.
+            df_auxiliary_features: Pool of potential fragments.
+            ms2_spectra_dict: MS2 spectra lookup.
+
+        Returns:
+            pd.DataFrame: Scored fragment features.
+        """
         df_fragment_features_list = df_reference_lipids.apply(
             self.get_fragment_features,
             axis=1,
@@ -198,10 +272,6 @@ class LipidAnnotator:
         if df_fragment_features.empty:
             return pd.DataFrame()
 
-        #df_fragment_features = self.filter_fragment_features(
-        #                            df_fragment_features=df_fragment_features
-        #                        )
-
         return df_fragment_features
     
     def get_fragment_features(
@@ -211,7 +281,17 @@ class LipidAnnotator:
         df_auxiliary_features: pd.DataFrame,
         ms2_spectra_dict: dict
     ) -> pd.DataFrame:
-        """"""
+        """Find and score fragment features for one reference lipid structure.
+
+        Args:
+            reference_lipid: Single reference lipid entry.
+            candidate_feature: Parent feature.
+            df_auxiliary_features: Pool of potential fragments.
+            ms2_spectra_dict: MS2 spectra lookup.
+
+        Returns:
+            pd.DataFrame: Scored fragment features for this structure.
+        """
         df_features = self.feature_processer.filter_by_rt(
                                     df_features=df_auxiliary_features,
                                     rt_theory=candidate_feature.get("rt")
@@ -282,7 +362,13 @@ class LipidAnnotator:
         self,
         df_fragment_features: pd.DataFrame,
     ) -> pd.DataFrame:
-        """
+        """Keep only the highest-scoring fragment per structure and position.
+
+        Args:
+            df_fragment_features: Scored fragment features.
+
+        Returns:
+            pd.DataFrame: Filtered best fragments.
         """
         idx = df_fragment_features.groupby(
            by=[
@@ -300,7 +386,15 @@ class LipidAnnotator:
         df_fragment_features: pd.DataFrame, 
         max_fragments: int
     ) -> str:
-        """"""
+        """Classify fragment ion detection level: None / Some / All.
+
+        Args:
+            df_fragment_features: Matched fragment features.
+            max_fragments: Expected number of fragments.
+
+        Returns:
+            str: Detection level label.
+        """
         num_fragments = len(df_fragment_features)
         if num_fragments == 0:
             fragments_ion_detection_level = "None"
@@ -320,7 +414,16 @@ class LipidAnnotator:
         max_fragments: int, 
         ms2_spectra_dict: dict
     ) -> str:
-        """"""
+        """Classify MS2 spectrum detection level for fragments.
+
+        Args:
+            df_fragment_features: Matched fragment features.
+            max_fragments: Expected fragments.
+            ms2_spectra_dict: MS2 spectra lookup.
+
+        Returns:
+            str: Spectrum detection level.
+        """
         df = df_fragment_features.copy()
         df_filtered = df[df["fragment_mz_delta"] < 0]
         
@@ -343,15 +446,16 @@ class LipidAnnotator:
         df_fragment_features: pd.DataFrame,
         df_features_blank: pd.DataFrame
     ) -> pd.DataFrame:
-        # filter fragment features
-        # (1) 根据OzID中的candidate_feature选择在Regular中对应的candidate_feature.
-        # (2) 根据OzID中的fragment_feature选择在Regular中对应的fragment_feature,
-        #     (使用"structure_annotated_name", "fragment_fatty_acid_pos"和"fragment_types")作为key.
-        # (3) 计算OzID中每个fragment_feature的relative intensity.
-        # (4) 计算出Regular中每个fragment_feature的relative intensity.
-        # (5) 判断OzID中的的fragment_feature是否在Regular中也存在(S/N > threshold)，其中threshold默认为3.
-        # (6) OzID中的fragment_feature的intensity矩阵和第(5)步生成的bool矩阵相乘，得到结果，变成0或者不变(乘1).
-        # (7) OzID中的fragment_feature的intensity全0的话，删除整行.
+        """Remove false positive fragments using blank/control sample subtraction.
+
+        Args:
+            candidate_feature: Parent feature.
+            df_fragment_features: Matched fragments.
+            df_features_blank: Blank sample features.
+
+        Returns:
+            pd.DataFrame: Filtered fragments without false positives.
+        """
     
         candidate_feature_blank = self.feature_processer.search_similar_feature(
                                     feature=candidate_feature, 
@@ -401,6 +505,15 @@ class LipidAnnotator:
         df_fragment_features: pd.DataFrame,
         candidate_feature: pd.Series
     ) -> pd.DataFrame:
+        """Normalize fragment intensities relative to parent feature.
+
+        Args:
+            df_fragment_features: Fragment features.
+            candidate_feature: Parent feature for normalization.
+
+        Returns:
+            pd.DataFrame: Normalized fragment features.
+        """
         df = df_fragment_features.copy()
         sample_columns = df.columns.difference(self.var_columns).tolist()
         denom = candidate_feature[sample_columns].mask(lambda x: x == 0.0, self.epsilon)
@@ -416,7 +529,15 @@ class LipidAnnotator:
         df_features: pd.DataFrame,
         df_features_blank: pd.DataFrame
     ) -> pd.DataFrame:
-        """"""
+        """Remove fragments present in blank sample above threshold.
+
+        Args:
+            df_features: Sample fragment features.
+            df_features_blank: Blank fragment features.
+
+        Returns:
+            pd.DataFrame: Fragments passing blank subtraction.
+        """
         df1 = df_features.copy()
         df2 = df_features_blank.copy()
         
@@ -469,6 +590,15 @@ class LipidAnnotator:
         candidate_feature: pd.Series,
         df_fragment_features: pd.DataFrame
     ) -> pd.DataFrame:
+        """Build final candidate annotation with averaged fragment scores.
+
+        Args:
+            candidate_feature: Parent feature.
+            df_fragment_features: Scored fragments.
+
+        Returns:
+            pd.DataFrame: Candidate feature with annotation scores.
+        """
         df_candidate_feature = candidate_feature.to_frame().T
         df_result_feature = pd.merge(
             left=df_candidate_feature, 
@@ -488,7 +618,6 @@ class LipidAnnotator:
         df_result_feature["fragment_mz_delta"] = 0
         df_result_feature["fragment_fatty_acid_pos"] = 0
         df_result_feature["fragment_types"] = "substrate"
-        #df_result_feature["score"] = result_scores
         df_result_feature = df_result_feature.reset_index(drop=True)
         df_result_scores = df_result_scores.reset_index(drop=True)
         df_result_feature = pd.concat([df_result_feature, df_result_scores], axis=1)
@@ -499,10 +628,14 @@ class LipidAnnotator:
         self,
         df_fragment_features: pd.DataFrame,
     ) -> pd.DataFrame:
-        #result_scores = df_fragment_features.groupby(
-        #    by=["structure_annotated_name"]
-        #)["score"].mean().tolist()
-        
+        """Compute mean scores across all fragments for each structure.
+
+        Args:
+            df_fragment_features: Scored fragment features.
+
+        Returns:
+            pd.DataFrame: Mean scores per structure.
+        """
         df_result_scores = df_fragment_features.groupby(
             by=["structure_annotated_name"]
         )[["rt_score","mz_score", "spec_score","total_score"]].mean()
@@ -513,7 +646,14 @@ class LipidAnnotator:
         self,
         df_result_features: pd.DataFrame,
     ) -> pd.DataFrame:
-        """"""
+        """Select top N highest-scoring annotations above threshold.
+
+        Args:
+            df_result_features: Scored candidate annotations.
+
+        Returns:
+            pd.DataFrame: Top N filtered results.
+        """
         df_tmp = df_result_features.nlargest(n=self.top_n, columns="total_score")
         df_tmp = df_tmp[df_tmp["total_score"] > self.score_threshold]
         
@@ -529,7 +669,15 @@ class LipidAnnotator:
       df_result_features: pd.DataFrame,
       df_fragment_features: pd.DataFrame  
     ) -> pd.DataFrame:
-        """"""
+        """Retain fragments corresponding to top N candidate structures.
+
+        Args:
+            df_result_features: Top N candidates.
+            df_fragment_features: All scored fragments.
+
+        Returns:
+            pd.DataFrame: Fragments for top candidates.
+        """
         df = df_fragment_features.copy()
         name = df_result_features["structure_annotated_name"].tolist()
         df_fragment_features_filter = df[df["structure_annotated_name"].isin(name)]
@@ -541,6 +689,15 @@ class LipidAnnotator:
         df_result_features: pd.DataFrame,
         df_fragment_features: pd.DataFrame
     ) -> pd.DataFrame:
+        """Quantify sample intensities using fragment sum normalization.
+
+        Args:
+            df_result_features: Top candidate annotations.
+            df_fragment_features: Corresponding fragments.
+
+        Returns:
+            pd.DataFrame: Quantified annotation results.
+        """
         df_result = df_result_features.copy()
         sample_columns = df_fragment_features.columns.difference(self.var_columns).tolist()
         df_intnsities_sum = df_fragment_features.groupby(
@@ -560,7 +717,14 @@ class LipidAnnotator:
         self,
         df_list: list
     ) -> pd.DataFrame:
-        """"""
+        """Format and clean final annotation results.
+
+        Args:
+            df_list: List of annotation DataFrames.
+
+        Returns:
+            pd.DataFrame: Formatted merged results.
+        """
         columns_to_drop = [
             "fragment_mz_delta",
             "fragment_fatty_acid_pos",
@@ -604,12 +768,18 @@ class LipidAnnotator:
         self,
         df: pd.DataFrame
     ) -> pd.DataFrame:
-        """"""
+        """Format and clean all features (parent + fragments).
+
+        Args:
+            df: Merged features DataFrame.
+
+        Returns:
+            pd.DataFrame: Formatted full feature table.
+        """
         df_features_all = df.copy()
         df_features_all = df_features_all.rename(columns={
                                     "precursor_mz": "mz_measured",
                                 })
-        # fill `mz_calculated`, `adduct` and `mol_formula``
         df_features_all = self._fill_na_in_df_features_all(
                             df=df_features_all, 
                             na_col="mz_calculated"
@@ -649,15 +819,20 @@ class LipidAnnotator:
                             ],
                             target_col="mol_formula"
                         )
-    
         return df_features_all
 
-    
     def _compute_mz_error(
         self, 
         data: pd.DataFrame
     ) -> pd.DataFrame:
-        """"""
+        """Calculate mass error in ppm.
+
+        Args:
+            data: DataFrame with mz_measured and mz_calculated.
+
+        Returns:
+            pd.DataFrame: DataFrame with mz_error(ppm) column.
+        """
         df = data.copy()
         df["mz_calculated"] = df["mz_calculated"].astype(float)
         ppm_series = abs(df["mz_measured"] - df["mz_calculated"]) / df["mz_calculated"] * 1e6 
@@ -672,12 +847,22 @@ class LipidAnnotator:
         move_cols: list,
         target_col: str
     ) -> pd.DataFrame:
-        """"""
+        """Reorder columns to place move_cols after target_col.
+
+        Args:
+            df: Input DataFrame.
+            move_cols: Columns to move.
+            target_col: Target position column.
+
+        Returns:
+            pd.DataFrame: Reordered DataFrame.
+        """
         if isinstance(move_cols, str):
             move_cols = [move_cols]
         pos = df.columns.get_loc(target_col) + 1
         others = [c for c in df.columns if c not in move_cols]
         new_order = others[:pos] + move_cols + others[pos:]
+
         return df[new_order]
     
     def _fill_na_in_df_features_all(
@@ -685,7 +870,15 @@ class LipidAnnotator:
         df: pd.DataFrame,
         na_col: str = "mz_calculated"
     ) -> pd.DataFrame:
-        """"""
+        """Fill missing values using structure_annotated_name mapping.
+
+        Args:
+            df: Features DataFrame.
+            na_col: Column to fill missing values.
+
+        Returns:
+            pd.DataFrame: DataFrame with filled values.
+        """
         df_features_all = df.copy()
         fill_map = (
             df_features_all[df_features_all[na_col] != ""]
@@ -699,5 +892,9 @@ class LipidAnnotator:
         return df_features_all
     
     def get_features_all(self) -> pd.DataFrame:
-        """"""
+        """Return the full DataFrame of all annotated features (parent + fragments).
+
+        Returns:
+            pd.DataFrame: All annotated features.
+        """
         return self.features_all

@@ -1,7 +1,26 @@
+"""Post-processing and main execution script for lipid annotation results.
+
+This module provides utility functions for result filtering, lipid class counting,
+YAML configuration handling, and the main pipeline execution. It processes raw
+annotation outputs to generate clean, filtered lipid identifications and
+statistical summaries of lipid class distributions.
+
+Key Functions:
+    dict_to_yaml: Save dictionary to YAML config file.
+    yaml_to_dict: Load YAML config into dictionary.
+    filter_results: Filter annotations by score and remove duplicates.
+    count_lipid_class: Count and categorize lipids by lipid class.
+
+Main Workflow:
+    1. Load/ save configuration and parameters
+    2. Run full lipid annotation pipeline
+    3. Filter low-quality results
+    4. Count lipid classes and export statistics
+"""
+
 import os
 import yaml
 import pandas as pd
-
 
 from silico_ms.pipeline_runner import LipidAnnotatorRunner
 
@@ -10,13 +29,25 @@ def dict_to_yaml(
     file: str,
     data: dict
 ) -> None:
-    """Write a dictionary to a YAML file."""
+    """Write a dictionary to a YAML configuration file.
+
+    Args:
+        file: Path to output YAML file.
+        data: Dictionary to be saved.
+    """
     with open(file, "w", encoding="utf-8") as f:
         yaml.dump(data, f, allow_unicode=True, sort_keys=False)
     
 
 def yaml_to_dict(file: str) -> dict:
-    """Load a YAML file into a dictionary."""
+    """Load a YAML configuration file into a Python dictionary.
+
+    Args:
+        file: Path to input YAML file.
+
+    Returns:
+        dict: Loaded configuration dictionary.
+    """
     with open(file, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
@@ -26,11 +57,18 @@ def filter_results(
     data: pd.DataFrame,
     score_threshold: float = 0.1
 ) -> pd.DataFrame:
+    """Filter lipid annotation results by quality and remove duplicates.
+
+    Removes entries with total_score below threshold, filters out zero-intensity
+    entries, and keeps only unique lipid structures per annotation.
+
+    Args:
+        data: Raw lipid annotation DataFrame.
+        score_threshold: Minimum total score for valid annotations.
+
+    Returns:
+        pd.DataFrame: Filtered, high-quality lipid annotation results.
     """
-    Filter out lipids with a total_score below a specified threshold, and remove duplicates.
-    
-    """
-    
     print("Filter by total score ...")
     
     var_cols = [
@@ -62,14 +100,22 @@ def filter_results(
     print("Filter by total score done!")
     
     return df_filtered
-    
 
 
 def count_lipid_class(
     data: pd.DataFrame
 ) -> pd.DataFrame:
-    """对lipid class计数"""
-    
+    """Count identified lipids by their lipid class (PC, PE, TG, etc.).
+
+    Maps lipid names to standard classes, counts occurrences,
+    and outputs sorted results with a total row.
+
+    Args:
+        data: Filtered lipid annotation results.
+
+    Returns:
+        pd.DataFrame: Lipid class count statistics.
+    """
     print("Count lipid class ...")
     
     mapping = {
@@ -107,7 +153,9 @@ def count_lipid_class(
 
 
 if __name__ == "__main__":
+    """Main execution entry for lipid annotation and post-processing pipeline."""
     
+    # Configuration for NIST plasma dataset (positive + negative mode)
     NIST_PLASMA_CONFIG = {
         "pos":{
             "ozid_database_file": "database/clean_data/ozonolysis_delta_mass.json",
@@ -159,7 +207,6 @@ if __name__ == "__main__":
         "out_dir": "example/results/20260109"
     }
     
-    
     config_file = "example/data/nist_plasma/nist_plasma_config.yaml"
     params_file = "example/data/nist_plasma/nist_plasma_params_config.yaml"
     
@@ -175,15 +222,10 @@ if __name__ == "__main__":
     config = yaml_to_dict(file=config_file)
     params = yaml_to_dict(file=params_file)
     
-    #lipid_annotator_runner = LipidAnnotatorRunner(config=config, params=params)
-    #df_results_total = lipid_annotator_runner.annotate_lipids()
-    
-    df_results_total = pd.read_csv("example/results/20260109/total_feature_table.csv")
-    print(df_results_total.shape)
-    df_filtered = filter_results(data=df_results_total, score_threshold=0.1) # 根据情况修改，文章中写的0.1
-    print(df_filtered.shape)
+    lipid_annotator_runner = LipidAnnotatorRunner(config=config, params=params)
+    df_results_total = lipid_annotator_runner.annotate_lipids()
+    df_filtered = filter_results(data=df_results_total, score_threshold=0.1)
     df_results = count_lipid_class(data=df_filtered)
-    print(df_results)
     
     out_file = os.path.join(params["out_dir"], "lipid_class_count.csv")
     out_file = out_file.replace("\\", "/")
