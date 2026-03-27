@@ -1,0 +1,10 @@
+rdkit==2023.9.5
+pandas
+anndata
+networkx
+matchms
+numpy
+pyyaml
+seaborn
+matplotlib
+tqdm
